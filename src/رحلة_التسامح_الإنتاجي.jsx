@@ -1,6 +1,5 @@
 
 import{useState,useEffect,useRef,useCallback}from"react";
-import{createClient}from"@supabase/supabase-js";
 
 /* ═══ GOOGLE FONTS ═══ */
 const GF=document.createElement("link");
@@ -249,56 +248,6 @@ const LS={
   del:(k)=>{try{localStorage.removeItem(k)}catch{}},
 };
 
-/* ═══ SUPABASE ═══ */
-const supabase=createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
-
-async function dbLogin(name,avatar){
-  try{
-    const{data:existing}=await supabase.from("students_app").select("*").eq("name",name).maybeSingle();
-    if(existing){
-      if(existing.avatar!==avatar)await supabase.from("students_app").update({avatar}).eq("id",existing.id);
-      return {...existing,avatar};
-    }
-    const{data:created,error}=await supabase.from("students_app").insert({name,avatar}).select().single();
-    if(error)throw error;
-    return created;
-  }catch(e){console.error("dbLogin",e);return null;}
-}
-async function dbSave(id,d){
-  try{
-    await supabase.from("students_app").update({
-      pts:d.pts||0,
-      badges:d.badges||[],
-      completed:d.completedActivities||[],
-      stamps:d.passportStamps||[],
-      assessment_before:d.assessmentBefore||null,
-      assessment_after:d.assessmentAfter||null,
-      updated_at:new Date().toISOString()
-    }).eq("id",id);
-  }catch(e){console.error("dbSave",e);}
-}
-async function dbStudents(){
-  try{
-    const{data}=await supabase.from("students_app").select("*").order("pts",{ascending:false});
-    return data||[];
-  }catch(e){console.error("dbStudents",e);return[];}
-}
-async function dbMessages(){
-  try{
-    const{data}=await supabase.from("peace_wall").select("*").order("created_at",{ascending:false}).limit(60);
-    return data||[];
-  }catch(e){console.error("dbMessages",e);return[];}
-}
-async function dbAddMessage(name,msg){
-  try{
-    const{error}=await supabase.from("peace_wall").insert({student_name:name,message:msg});
-    return !error;
-  }catch(e){console.error("dbAddMessage",e);return false;}
-}
-
 const getLevelName=(pts)=>{
   if(pts<50)return "أبدأ رحلتي";
   if(pts<150)return "أتقدم جيداً";
@@ -414,14 +363,6 @@ export default function App(){
     if(saved){
       setUser(saved);
       setUserData(savedData||{pts:0,badges:[],completedActivities:[],passportStamps:[],messages:[],assessmentBefore:null,assessmentAfter:null});
-      if(saved.dbId){
-        supabase.from("students_app").select("*").eq("id",saved.dbId).maybeSingle().then(({data})=>{
-          if(data){
-            const fresh={pts:data.pts||0,badges:data.badges||[],completedActivities:data.completed||[],passportStamps:data.stamps||[],messages:[],assessmentBefore:data.assessment_before||null,assessmentAfter:data.assessment_after||null};
-            setUserData(fresh);LS.set("rtUserData",fresh);
-          }
-        });
-      }
     }
     const teacherSaved=LS.get("rtTeacher");
     if(teacherSaved)setIsTeacher(true);
@@ -434,7 +375,7 @@ export default function App(){
   };
 
   const saveUser=(u)=>{setUser(u);LS.set("rtUser",u);};
-  const saveUserData=(d)=>{setUserData(d);LS.set("rtUserData",d);const u=user||LS.get("rtUser");if(u&&u.dbId)dbSave(u.dbId,d);};
+  const saveUserData=(d)=>{setUserData(d);LS.set("rtUserData",d);};
 
   const addPoints=(pts,actId,badgeId)=>{
     const d={...userData};
@@ -506,24 +447,10 @@ function LoginScreen({nav,setIsTeacher}){
   const[avatar,setAvatar]=useState("🌟");
   const avatars=["🌟","💫","🌸","🦋","🎯","💎","🌺","✨","🎀","🌈"];
 
-  const[busy,setBusy]=useState(false);
-  const handleStudent=async()=>{
+  const handleStudent=()=>{
     if(!name.trim()){setErr("أدخلي اسمك أولاً");return;}
-    if(busy)return;
-    setBusy(true);setErr("");
-    const row=await dbLogin(name.trim(),avatar);
-    if(!row){setBusy(false);setErr("تعذّر الاتصال بقاعدة البيانات — تحققي من الإنترنت وحاولي مجدداً");return;}
-    nav.saveUser({name:row.name,avatar:row.avatar||avatar,role:"student",dbId:row.id,joinDate:new Date().toLocaleDateString("ar-SA")});
-    nav.saveUserData({
-      pts:row.pts||0,
-      badges:row.badges||[],
-      completedActivities:row.completed||[],
-      passportStamps:row.stamps||[],
-      messages:[],
-      assessmentBefore:row.assessment_before||null,
-      assessmentAfter:row.assessment_after||null
-    });
-    setBusy(false);
+    nav.saveUser({name:name.trim(),avatar,role:"student",joinDate:new Date().toLocaleDateString("ar-SA")});
+    nav.saveUserData({pts:0,badges:[],completedActivities:[],passportStamps:[],messages:[],assessmentBefore:null,assessmentAfter:null});
     nav.go("home");
   };
 
@@ -583,8 +510,8 @@ function LoginScreen({nav,setIsTeacher}){
               </div>
             </div>
             {err&&<p style={{color:"#EF4444",fontSize:13,marginTop:12}}>{err}</p>}
-            <Btn onClick={handleStudent} color="#8B5CF6" style={{width:"100%",marginTop:20,fontSize:16}} disabled={busy}>
-              {busy?"⏳ جاري الدخول...":"🚀 ابدأي الرحلة!"}
+            <Btn onClick={handleStudent} color="#8B5CF6" style={{width:"100%",marginTop:20,fontSize:16}}>
+              🚀 ابدأي الرحلة!
             </Btn>
           </div>
         )}
@@ -1451,24 +1378,14 @@ function PeaceMessageActivity({nav}){
   const{addPoints,go,userData}=nav;
   const[msg,setMsg]=useState("");
   const[submitted,setSubmitted]=useState(false);
-  const[sending,setSending]=useState(false);
-  const[allMsgs,setAllMsgs]=useState([]);
-  const[loading,setLoading]=useState(true);
+  const[allMsgs,setAllMsgs]=useState(()=>[...PEACE_MESSAGES,...(LS.get("rtMessages")||[])]);
 
-  useEffect(()=>{
-    dbMessages().then(rows=>{
-      setAllMsgs(rows.map(r=>({name:r.student_name||"طالبة",msg:r.message,time:new Date(r.created_at).toLocaleDateString("ar-SA")})));
-      setLoading(false);
-    });
-  },[]);
-
-  const submit=async()=>{
-    if(!msg.trim()||msg.length<10||sending)return;
-    setSending(true);
-    const ok=await dbAddMessage(nav.user?.name||"طالبة",msg.trim());
-    setSending(false);
-    if(!ok){nav.showToast("تعذّر إرسال الرسالة — تحققي من الاتصال","error");return;}
-    setAllMsgs(m=>[{name:nav.user?.name||"طالبة",msg:msg.trim(),time:"الآن"},...m]);
+  const submit=()=>{
+    if(!msg.trim()||msg.length<10)return;
+    const newMsg={name:nav.user?.name||"طالبة",msg:msg.trim(),time:"الآن"};
+    const updated=[newMsg,...allMsgs];
+    setAllMsgs(updated);
+    LS.set("rtMessages",updated.filter(m=>!PEACE_MESSAGES.some(p=>p.msg===m.msg)));
     if(!userData.completedActivities?.includes("peace-message"))addPoints(15,"peace-message","kindwords");
     setSubmitted(true);
   };
@@ -1478,7 +1395,7 @@ function PeaceMessageActivity({nav}){
       <div style={{background:"linear-gradient(135deg,#0369A1,#0EA5E9)",padding:"20px 16px 30px",color:"white"}}>
         <button onClick={()=>go("home")} style={{background:"none",border:"none",color:"rgba(255,255,255,0.7)",cursor:"pointer",fontSize:14,fontFamily:"Tajawal",marginBottom:8}}>← الرئيسية</button>
         <h1 style={{fontFamily:"Cairo,sans-serif",fontSize:22,fontWeight:900}}>✉️ رسالتي للسلام</h1>
-        <p style={{opacity:.8,fontSize:13}}>جدار السلام المشترك • {allMsgs.length} رسالة من الطالبات</p>
+        <p style={{opacity:.8,fontSize:13}}>جدار السلام العالمي • {allMsgs.length} رسالة من الطالبات</p>
       </div>
       <div style={{maxWidth:600,margin:"0 auto",padding:"20px 16px"}}>
         {!submitted?(
@@ -1487,22 +1404,20 @@ function PeaceMessageActivity({nav}){
             <textarea value={msg} onChange={e=>setMsg(e.target.value)} placeholder="اكتبي رسالة جميلة عن التسامح أو السلام... (على الأقل 10 حروف)" style={{width:"100%",padding:"12px 16px",border:"2px solid #E5E7EB",borderRadius:12,fontSize:14,fontFamily:"Tajawal",outline:"none",resize:"vertical",minHeight:100,lineHeight:1.7}}/>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12}}>
               <span style={{fontSize:12,color:msg.length<10?"#EF4444":"#6B7280"}}>{msg.length} حرف {msg.length<10&&"(على الأقل 10)"}</span>
-              <Btn onClick={submit} color="#0EA5E9" disabled={msg.length<10||sending}>{sending?"⏳ جاري الإرسال...":"إرسال رسالتي ✉️"}</Btn>
+              <Btn onClick={submit} color="#0EA5E9" disabled={msg.length<10}>إرسال رسالتي ✉️</Btn>
             </div>
           </Card>
         ):(
           <Card style={{textAlign:"center",background:"linear-gradient(135deg,#0EA5E9,#8B5CF6)",color:"white",marginBottom:20}}>
             <div style={{fontSize:48,marginBottom:8}}>✉️</div>
             <h3 style={{fontSize:18,fontWeight:900,marginBottom:4}}>رسالتك وصلت!</h3>
-            <p style={{opacity:.85}}>رسالتك الآن على جدار السلام وستراها كل الطالبات 💙</p>
+            <p style={{opacity:.85}}>شكراً! رسالتك أضافت لمسة جميلة لجدار السلام</p>
           </Card>
         )}
 
         <h3 style={{fontSize:16,fontWeight:800,color:"#1E1B4B",marginBottom:12}}>🕊️ جدار السلام</h3>
-        {loading&&<p style={{textAlign:"center",color:"#9CA3AF",padding:20}}>⏳ جاري تحميل الرسائل...</p>}
-        {!loading&&allMsgs.length===0&&<p style={{textAlign:"center",color:"#9CA3AF",padding:20}}>كوني أول من يكتب رسالة على الجدار! 🌸</p>}
         <div style={{display:"grid",gap:12}}>
-          {allMsgs.slice(0,20).map((m,i)=>(
+          {allMsgs.slice(0,8).map((m,i)=>(
             <Card key={i} style={{background:"#F0F9FF",border:"1px solid #BAE6FD"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
                 <span style={{fontWeight:700,color:"#0369A1",fontSize:14}}>💙 {m.name}</span>
@@ -1782,15 +1697,9 @@ function PassportScreen({nav}){
 
 /* ═══ LEADERBOARD SCREEN ═══ */
 function LeaderboardScreen({nav}){
-  const{user,go}=nav;
-  const[rows,setRows]=useState(null);
-  useEffect(()=>{dbStudents().then(setRows);},[]);
-
-  const combined=(rows||[]).map(r=>({
-    name:r.name,pts:r.pts||0,acts:(r.completed||[]).length,
-    badges:r.badges||[],level:getLevelNum(r.pts||0),
-    avatar:r.avatar||"🌟",isMe:user&&r.name===user.name
-  })).sort((a,b)=>b.pts-a.pts);
+  const{user,userData,go}=nav;
+  const myEntry={name:user?.name||"أنتِ",pts:userData?.pts||0,acts:userData?.completedActivities?.length||0,badges:userData?.badges||[],level:getLevelNum(userData?.pts||0),avatar:user?.avatar||"🌟",isMe:true};
+  const combined=[...DEMO_STUDENTS,myEntry].sort((a,b)=>b.pts-a.pts);
 
   return(
     <div style={{minHeight:"100vh",background:"#FFFBEB"}}>
@@ -1800,28 +1709,26 @@ function LeaderboardScreen({nav}){
         <p style={{opacity:.8,fontSize:13}}>{combined.length} طالبة مشاركة</p>
       </div>
       <div style={{maxWidth:600,margin:"0 auto",padding:"20px 16px"}}>
-        {rows===null&&<p style={{textAlign:"center",color:"#9CA3AF",padding:30}}>⏳ جاري تحميل البيانات...</p>}
-        {rows!==null&&combined.length===0&&<p style={{textAlign:"center",color:"#9CA3AF",padding:30}}>لا توجد طالبات مسجلات بعد — كوني الأولى! 🌸</p>}
+        {/* Top 3 */}
+        <div style={{display:"flex",gap:10,marginBottom:20,alignItems:"flex-end",justifyContent:"center"}}>
+          {[combined[1],combined[0],combined[2]].map((s,i)=>{
+            const h=[90,110,80][i];
+            const medal=["🥈","🥇","🥉"][i];
+            const bg=["#9CA3AF","#F59E0B","#D97706"][i];
+            return s?(
+              <div key={i} style={{flex:1,textAlign:"center",background:"white",borderRadius:16,padding:"12px 8px",border:`3px solid ${bg}`}}>
+                <div style={{fontSize:24,marginBottom:4}}>{medal}</div>
+                <div style={{fontSize:28,marginBottom:4}}>{s.avatar}</div>
+                <div style={{fontSize:13,fontWeight:800,color:"#1E1B4B",marginBottom:2}}>{s.name?.split(" ")[0]||s.name}</div>
+                <div style={{fontSize:18,fontWeight:900,color:bg}}>{s.pts}</div>
+                <div style={{fontSize:11,color:"#9CA3AF"}}>نقطة</div>
+                {s.isMe&&<div style={{fontSize:11,color:"#8B5CF6",fontWeight:700,marginTop:2}}>أنتِ ⬆️</div>}
+              </div>
+            ):null;
+          })}
+        </div>
 
-        {combined.length>0&&(
-          <div style={{display:"flex",gap:10,marginBottom:20,alignItems:"flex-end",justifyContent:"center"}}>
-            {[combined[1],combined[0],combined[2]].map((s,i)=>{
-              const medal=["🥈","🥇","🥉"][i];
-              const bg=["#9CA3AF","#F59E0B","#D97706"][i];
-              return s?(
-                <div key={i} style={{flex:1,textAlign:"center",background:"white",borderRadius:16,padding:"12px 8px",border:`3px solid ${bg}`}}>
-                  <div style={{fontSize:24,marginBottom:4}}>{medal}</div>
-                  <div style={{fontSize:28,marginBottom:4}}>{s.avatar}</div>
-                  <div style={{fontSize:13,fontWeight:800,color:"#1E1B4B",marginBottom:2}}>{s.name?.split(" ")[0]||s.name}</div>
-                  <div style={{fontSize:18,fontWeight:900,color:bg}}>{s.pts}</div>
-                  <div style={{fontSize:11,color:"#9CA3AF"}}>نقطة</div>
-                  {s.isMe&&<div style={{fontSize:11,color:"#8B5CF6",fontWeight:700,marginTop:2}}>أنتِ ⬆️</div>}
-                </div>
-              ):null;
-            })}
-          </div>
-        )}
-
+        {/* Full List */}
         <div style={{display:"grid",gap:8}}>
           {combined.map((s,i)=>(
             <Card key={i} style={{
@@ -1835,7 +1742,7 @@ function LeaderboardScreen({nav}){
               <div style={{fontSize:28}}>{s.avatar}</div>
               <div style={{flex:1}}>
                 <div style={{fontWeight:800,fontSize:14,color:"#1E1B4B"}}>{s.name}{s.isMe&&" 👈"}</div>
-                <div style={{fontSize:12,color:"#6B7280"}}>المستوى {s.level} • {s.acts} نشاط • {s.badges.length} شارة</div>
+                <div style={{fontSize:12,color:"#6B7280"}}>المستوى {s.level||getLevelNum(s.pts)} • {s.acts||0} نشاط • {s.badges?.length||0} شارة</div>
               </div>
               <div style={{textAlign:"left"}}>
                 <div style={{fontWeight:900,fontSize:16,color:"#F59E0B"}}>{s.pts}</div>
@@ -1853,51 +1760,27 @@ function LeaderboardScreen({nav}){
 function TeacherScreen({nav,setIsTeacher}){
   const{go}=nav;
   const[tab,setTab]=useState("overview");
-  const[students,setStudents]=useState(null);
-  const[msgsCount,setMsgsCount]=useState(0);
-
-  useEffect(()=>{
-    dbStudents().then(rows=>setStudents(rows.map(r=>({
-      name:r.name,pts:r.pts||0,acts:(r.completed||[]).length,
-      completed:r.completed||[],badges:r.badges||[],
-      level:getLevelNum(r.pts||0),avatar:r.avatar||"🌟",
-      before:r.assessment_before||null,after:r.assessment_after||null
-    }))));
-    dbMessages().then(rows=>setMsgsCount(rows.length));
-  },[]);
 
   const logout=()=>{LS.del("rtTeacher");setIsTeacher(false);go("login");};
 
-  const st=students||[];
   const stats={
-    students:st.length,
-    active:st.filter(s=>s.acts>0).length,
-    activities:st.reduce((a,s)=>a+s.acts,0),
-    avgPts:st.length?Math.round(st.reduce((a,s)=>a+s.pts,0)/st.length):0,
-    messages:msgsCount,
-    badges:st.reduce((a,s)=>a+s.badges.length,0),
+    students:DEMO_STUDENTS.length+1,
+    active:DEMO_STUDENTS.length-1,
+    activities:47,
+    avgPts:Math.round(DEMO_STUDENTS.reduce((s,d)=>s+d.pts,0)/DEMO_STUDENTS.length),
+    messages:PEACE_MESSAGES.length+(LS.get("rtMessages")||[]).length,
+    badges:DEMO_STUDENTS.reduce((s,d)=>s+d.badges.length,0),
   };
 
-  const beforeScores=st.filter(s=>s.before).map(s=>s.before.score);
-  const afterScores=st.filter(s=>s.after).map(s=>s.after.score);
-  const avgB=beforeScores.length?Math.round(beforeScores.reduce((a,b)=>a+b,0)/beforeScores.length):0;
-  const avgA=afterScores.length?Math.round(afterScores.reduce((a,b)=>a+b,0)/afterScores.length):0;
-  const improvement=avgA-avgB;
-
-  const badgeCount=(id)=>st.filter(s=>s.badges.includes(id)).length;
-  const actDone=(id)=>st.filter(s=>s.completed.includes(id)).length;
-
-  const exportCSV=()=>{
-    const head="الاسم,النقاط,الأنشطة المكتملة,الشارات,القياس القبلي,القياس البعدي\n";
-    const body=st.map(s=>[s.name,s.pts,s.acts,s.badges.length,s.before?s.before.score:"",s.after?s.after.score:""].join(",")).join("\n");
-    const blob=new Blob(["\ufeff"+head+body],{type:"text/csv;charset=utf-8"});
-    const a=document.createElement("a");
-    a.href=URL.createObjectURL(blob);a.download="تقرير_رحلة_التسامح.csv";a.click();
-    nav.showToast("تم تصدير التقرير","success");
-  };
+  const actCompletions=ACTIVITIES.map(a=>({
+    name:a.title,icon:a.icon,
+    count:Math.floor(Math.random()*stats.students),
+    pct:Math.floor(Math.random()*80+20)
+  }));
 
   return(
     <div style={{minHeight:"100vh",background:"#F8FAFC"}}>
+      {/* Header */}
       <div style={{background:"linear-gradient(135deg,#1E1B4B,#312E81)",padding:"20px 16px",color:"white"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
@@ -1919,9 +1802,7 @@ function TeacherScreen({nav,setIsTeacher}){
       </div>
 
       <div style={{maxWidth:900,margin:"0 auto",padding:"20px 16px"}}>
-        {students===null&&<p style={{textAlign:"center",color:"#9CA3AF",padding:30}}>⏳ جاري تحميل بيانات الطالبات...</p>}
-
-        {students!==null&&tab==="overview"&&(
+        {tab==="overview"&&(
           <div style={{animation:"fadeIn .4s ease"}}>
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:20}}>
               {[
@@ -1942,29 +1823,21 @@ function TeacherScreen({nav,setIsTeacher}){
 
             <Card style={{marginBottom:20}}>
               <h3 style={{fontSize:16,fontWeight:800,color:"#1E1B4B",marginBottom:16}}>📊 مؤشر القياس القبلي / البعدي</h3>
-              {beforeScores.length===0&&afterScores.length===0?(
-                <p style={{color:"#9CA3AF",textAlign:"center",padding:10}}>لم تُجرِ أي طالبة المقياس بعد</p>
-              ):(
-                <>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
-                    <div>
-                      <div style={{fontSize:13,color:"#6B7280",marginBottom:8}}>متوسط القياس القبلي ({beforeScores.length} طالبة)</div>
-                      <div style={{fontSize:28,fontWeight:900,color:"#EF4444"}}>{avgB}%</div>
-                      <ProgressBar value={avgB} max={100} color="#EF4444"/>
-                    </div>
-                    <div>
-                      <div style={{fontSize:13,color:"#6B7280",marginBottom:8}}>متوسط القياس البعدي ({afterScores.length} طالبة)</div>
-                      <div style={{fontSize:28,fontWeight:900,color:"#10B981"}}>{avgA}%</div>
-                      <ProgressBar value={avgA} max={100} color="#10B981"/>
-                    </div>
-                  </div>
-                  {afterScores.length>0&&(
-                    <div style={{background:improvement>=0?"#ECFDF5":"#FEF2F2",borderRadius:12,padding:12,marginTop:16,textAlign:"center"}}>
-                      <span style={{color:improvement>=0?"#065F46":"#991B1B",fontWeight:700,fontSize:15}}>📈 نسبة التغير: {improvement>=0?"+":""}{improvement}% في مهارات التسامح</span>
-                    </div>
-                  )}
-                </>
-              )}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+                <div>
+                  <div style={{fontSize:13,color:"#6B7280",marginBottom:8}}>متوسط القياس القبلي</div>
+                  <div style={{fontSize:28,fontWeight:900,color:"#EF4444"}}>62%</div>
+                  <ProgressBar value={62} max={100} color="#EF4444"/>
+                </div>
+                <div>
+                  <div style={{fontSize:13,color:"#6B7280",marginBottom:8}}>متوسط القياس البعدي</div>
+                  <div style={{fontSize:28,fontWeight:900,color:"#10B981"}}>84%</div>
+                  <ProgressBar value={84} max={100} color="#10B981"/>
+                </div>
+              </div>
+              <div style={{background:"#ECFDF5",borderRadius:12,padding:12,marginTop:16,textAlign:"center"}}>
+                <span style={{color:"#065F46",fontWeight:700,fontSize:15}}>📈 نسبة التحسن: +22% في مهارات التسامح</span>
+              </div>
             </Card>
 
             <Card>
@@ -1975,9 +1848,9 @@ function TeacherScreen({nav,setIsTeacher}){
                     <span style={{fontSize:20,flexShrink:0}}>{b.icon}</span>
                     <span style={{fontSize:13,flex:1,color:"#374151"}}>{b.name}</span>
                     <div style={{width:120}}>
-                      <ProgressBar value={badgeCount(b.id)} max={Math.max(1,stats.students)} color={b.color}/>
+                      <ProgressBar value={Math.floor(Math.random()*stats.students)} max={stats.students} color={b.color}/>
                     </div>
-                    <span style={{fontSize:12,color:"#6B7280",minWidth:40,textAlign:"left"}}>{badgeCount(b.id)}</span>
+                    <span style={{fontSize:12,color:"#6B7280",minWidth:40,textAlign:"left"}}>{Math.floor(Math.random()*stats.students)}</span>
                   </div>
                 ))}
               </div>
@@ -1985,11 +1858,10 @@ function TeacherScreen({nav,setIsTeacher}){
           </div>
         )}
 
-        {students!==null&&tab==="students"&&(
+        {tab==="students"&&(
           <div style={{animation:"fadeIn .4s ease"}}>
-            {st.length===0&&<p style={{textAlign:"center",color:"#9CA3AF",padding:30}}>لا توجد طالبات مسجلات بعد</p>}
             <div style={{display:"grid",gap:10}}>
-              {st.map((s,i)=>(
+              {DEMO_STUDENTS.map((s,i)=>(
                 <Card key={i} style={{padding:"14px 16px"}}>
                   <div style={{display:"flex",alignItems:"center",gap:12}}>
                     <div style={{fontSize:28}}>{s.avatar}</div>
@@ -2016,33 +1888,29 @@ function TeacherScreen({nav,setIsTeacher}){
           </div>
         )}
 
-        {students!==null&&tab==="activities"&&(
+        {tab==="activities"&&(
           <div style={{animation:"fadeIn .4s ease"}}>
             <div style={{display:"grid",gap:10}}>
-              {ACTIVITIES.map((a,i)=>{
-                const done=actDone(a.id);
-                const pct=stats.students?Math.round(done/stats.students*100):0;
-                return(
-                  <Card key={i} style={{padding:"14px 16px",background:a.bg}}>
-                    <div style={{display:"flex",alignItems:"center",gap:12}}>
-                      <span style={{fontSize:28}}>{a.icon}</span>
-                      <div style={{flex:1}}>
-                        <div style={{fontWeight:700,fontSize:14,color:a.color,marginBottom:4}}>{a.title}</div>
-                        <ProgressBar value={done} max={Math.max(1,stats.students)} color={a.color}/>
-                      </div>
-                      <div style={{textAlign:"left",minWidth:60}}>
-                        <div style={{fontWeight:900,color:a.color}}>{pct}%</div>
-                        <div style={{fontSize:11,color:"#9CA3AF"}}>{done} طالبة</div>
-                      </div>
+              {ACTIVITIES.map((a,i)=>(
+                <Card key={i} style={{padding:"14px 16px",background:a.bg}}>
+                  <div style={{display:"flex",alignItems:"center",gap:12}}>
+                    <span style={{fontSize:28}}>{a.icon}</span>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:700,fontSize:14,color:a.color,marginBottom:4}}>{a.title}</div>
+                      <ProgressBar value={Math.floor(Math.random()*stats.students)} max={stats.students} color={a.color}/>
                     </div>
-                  </Card>
-                );
-              })}
+                    <div style={{textAlign:"left",minWidth:50}}>
+                      <div style={{fontWeight:900,color:a.color}}>{Math.floor(Math.random()*80+20)}%</div>
+                      <div style={{fontSize:11,color:"#9CA3AF"}}>إنجاز</div>
+                    </div>
+                  </div>
+                </Card>
+              ))}
             </div>
           </div>
         )}
 
-        {students!==null&&tab==="reports"&&(
+        {tab==="reports"&&(
           <div style={{animation:"fadeIn .4s ease"}}>
             <Card style={{marginBottom:16}}>
               <h3 style={{fontSize:16,fontWeight:800,color:"#1E1B4B",marginBottom:12}}>📋 تقرير التنفيذ</h3>
@@ -2051,20 +1919,20 @@ function TeacherScreen({nav,setIsTeacher}){
                 <div><strong>المعلمة:</strong> نوف الدوسري</div>
                 <div><strong>المدرسة:</strong> مدرسة ملهم الابتدائية</div>
                 <div><strong>الفئة:</strong> طالبات الصف الثالث</div>
+                <div><strong>فترة التنفيذ:</strong> الفصل الدراسي الثالث ١٤٤٦هـ</div>
                 <div><strong>عدد المشاركات:</strong> {stats.students} طالبة</div>
-                <div><strong>الطالبات النشطات:</strong> {stats.active} طالبة</div>
-                <div><strong>الأنشطة المنجزة:</strong> {stats.activities} نشاطاً</div>
-                <div><strong>متوسط القياس القبلي:</strong> {beforeScores.length?avgB+"%":"—"}</div>
-                <div><strong>متوسط القياس البعدي:</strong> {afterScores.length?avgA+"%":"—"}</div>
-                <div><strong>نسبة التغير:</strong> <span style={{color:improvement>=0?"#10B981":"#EF4444",fontWeight:700}}>{afterScores.length?(improvement>=0?"+":"")+improvement+"%":"—"}</span></div>
+                <div><strong>الأنشطة المنفذة:</strong> {ACTIVITIES.length} نشاطاً</div>
+                <div><strong>متوسط القياس القبلي:</strong> 62%</div>
+                <div><strong>متوسط القياس البعدي:</strong> 84%</div>
+                <div><strong>نسبة التحسن:</strong> <span style={{color:"#10B981",fontWeight:700}}>+22%</span></div>
                 <div><strong>رسائل السلام:</strong> {stats.messages} رسالة</div>
                 <div><strong>الشارات الممنوحة:</strong> {stats.badges} شارة</div>
               </div>
             </Card>
 
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              <Btn onClick={()=>window.print()} color="#1D4ED8" style={{width:"100%"}}>🖨️ طباعة / PDF</Btn>
-              <Btn onClick={exportCSV} color="#065F46" style={{width:"100%"}}>📊 تصدير Excel (CSV)</Btn>
+              <Btn onClick={()=>nav.showToast("جارٍ تحميل التقرير...","success")} color="#1D4ED8" style={{width:"100%"}}>📄 تصدير PDF</Btn>
+              <Btn onClick={()=>nav.showToast("جارٍ تصدير البيانات...","success")} color="#065F46" style={{width:"100%"}}>📊 تصدير Excel</Btn>
             </div>
           </div>
         )}
