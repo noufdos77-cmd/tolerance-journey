@@ -455,7 +455,15 @@ export default function App(){
 
   const go=(s)=>{setScreen(s);window.scrollTo(0,0);};
 
-  const nav={go,user,userData,addPoints,showToast,saveUserData,saveUser};
+  const logoutStudent=()=>{
+    if(!window.confirm("هل تريدين تسجيل الخروج؟\nتقدمك محفوظ ✅ ويمكنك العودة في أي وقت بكتابة اسمك"))return;
+    LS.del("rtUser");LS.del("rtUserData");
+    setUser(null);setUserData({});
+    setScreen("login");
+    showToast("👋 إلى اللقاء! تقدمك محفوظ","success");
+  };
+
+  const nav={go,user,userData,addPoints,showToast,saveUserData,saveUser,logoutStudent};
 
   return(
     <div style={{minHeight:"100vh",background:"#0F0E2A",fontFamily:"Tajawal,sans-serif",direction:"rtl"}}>
@@ -655,6 +663,7 @@ function HomeScreen({nav}){
                 <div style={{fontSize:28,fontWeight:900,color:"#F59E0B"}}>{pts}</div>
                 <div style={{fontSize:12,color:"rgba(255,255,255,0.7)"}}>نقطة</div>
               </div>
+              <button onClick={nav.logoutStudent} style={{marginTop:8,background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:10,padding:"6px 14px",color:"white",cursor:"pointer",fontFamily:"Tajawal",fontSize:12,fontWeight:700}}>🚪 تسجيل الخروج</button>
             </div>
           </div>
           <ProgressBar value={completed} max={total} color="#F59E0B" label={`تقدم الرحلة: ${completed} من ${total} نشاط`}/>
